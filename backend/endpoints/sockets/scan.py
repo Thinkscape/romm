@@ -591,6 +591,18 @@ async def _rebuild_rom_files(
     return parsed
 
 
+def _save_rom_files(rom: Rom, fs_rom: FSRom) -> None:
+    """Store `fs_rom`'s files on the rom's row and persist soundtrack covers."""
+    # Reconcile against the existing rows instead of replacing them, so file
+    # ids survive a rescan and anything keyed on them (track metadata,
+    # persisted soundtrack covers) stays valid.
+    synced = db_rom_handler.sync_rom_files(rom.id, fs_rom["files"])
+    for cover_path in synced.orphaned_cover_paths:
+        remove_persisted_cover(cover_path)
+    for saved in synced.files:
+        persist_soundtrack_cover(saved, rom)
+
+
 # There's an order of operations here that is important:
 # 1. Read the list of roms from the filesystem
 # 2. Check if ROM should be scanned based on the scan type
@@ -775,17 +787,24 @@ async def _identify_rom(
     scanned_files = fs_rom["files"] if should_update_files else None
 
     log.debug(f"Scanning {rom.fs_name}...")
-    scanned_rom = await scan_rom(
-        scan_type=scan_type,
-        platform=platform,
-        rom=rom,
-        fs_rom=fs_rom,
-        metadata_sources=metadata_sources,
-        newly_added=newly_added,
-        launchbox_remote_enabled=launchbox_remote_enabled,
-        socket_manager=socket_manager,
-        scanned_files=scanned_files,
-    )
+    try:
+        scanned_rom = await scan_rom(
+            scan_type=scan_type,
+            platform=platform,
+            rom=rom,
+            fs_rom=fs_rom,
+            metadata_sources=metadata_sources,
+            newly_added=newly_added,
+            launchbox_remote_enabled=launchbox_remote_enabled,
+            socket_manager=socket_manager,
+            scanned_files=scanned_files,
+        )
+    except Exception:
+        # The new entry is already in the database, so store its files before the
+        # error ends this ROM's scan, or it is left without any.
+        if newly_added and should_update_files:
+            _save_rom_files(rom, fs_rom)
+        raise
 
     await scan_stats.increment(
         socket_manager=socket_manager,
@@ -803,14 +822,7 @@ async def _identify_rom(
         )
 
     if should_update_files:
-        # Reconcile against the existing rows instead of replacing them, so file
-        # ids survive a rescan and anything keyed on them (track metadata,
-        # persisted soundtrack covers) stays valid.
-        synced = db_rom_handler.sync_rom_files(_added_rom.id, fs_rom["files"])
-        for cover_path in synced.orphaned_cover_paths:
-            remove_persisted_cover(cover_path)
-        for saved in synced.files:
-            persist_soundtrack_cover(saved, _added_rom)
+        _save_rom_files(_added_rom, fs_rom)
 
     # Short circuit if the scan type is hashes
     if scan_type == ScanType.HASHES:

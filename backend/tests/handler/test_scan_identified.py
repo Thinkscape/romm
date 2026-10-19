@@ -63,3 +63,28 @@ async def test_unmatched_rom_skips_the_sgdb_lookup(sgdb_lookup):
 
     assert not result.is_identified
     sgdb_lookup.assert_not_awaited()
+
+
+async def test_new_rom_matched_without_a_name_falls_back_to_the_filename(
+    sgdb_lookup,
+):
+    # A quick scan of a new ROM carries no stored name forward; a source that
+    # matches by id alone used to leave `name` unset and raise KeyError('name').
+    platform = add_n64_platform()
+    rom = add_rom(platform, FS_NAME, "Mario Kart 64")
+
+    with patch(
+        "handler.scan_handler.meta_libretro_handler.get_rom",
+        new=AsyncMock(return_value=LibretroRom(libretro_id="Mario Kart 64 (USA)")),
+    ):
+        result = await run_scan(
+            platform,
+            rom,
+            scan_type=ScanType.QUICK,
+            metadata_sources=[MetadataSource.LIBRETRO, MetadataSource.SGDB],
+            newly_added=True,
+        )
+
+    assert result.libretro_id == "Mario Kart 64 (USA)"
+    assert result.name == "Mario Kart 64"
+    assert result.is_identified
