@@ -23,6 +23,18 @@ describe("useVersionDisplay", () => {
     );
   });
 
+  it("shows the full fork version and links its tag in the fork", () => {
+    heartbeatStore = makeHeartbeatStore({
+      VERSION: "5.4.0-thinkscape.4",
+      GIT_BRANCH: null,
+    });
+    const { version, href } = useVersionDisplay();
+    expect(version.value).toBe("5.4.0-thinkscape.4");
+    expect(href.value).toBe(
+      "https://github.com/Thinkscape/romm/tree/5.4.0-thinkscape.4",
+    );
+  });
+
   it("falls back to the bare 'development' tag when no branch is known", () => {
     heartbeatStore = makeHeartbeatStore({
       VERSION: "development",

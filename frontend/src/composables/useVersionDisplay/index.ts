@@ -1,7 +1,9 @@
 // The version to display and where it links: the branch on a dev build when
-// known, the commit on a nightly build (`nightly-<short sha>`), else the release.
+// known, the commit on a nightly build (`nightly-<short sha>`), the fork's tag
+// on a fork build (`<upstream>-thinkscape.<N>`), else the upstream release.
 import { computed } from "vue";
 import storeHeartbeat from "@/stores/heartbeat";
+import { versionTagUrl } from "@/utils/forkVersion";
 
 const NIGHTLY_VERSION_RE = /^nightly-([0-9a-f]{7,40})$/;
 
@@ -30,7 +32,7 @@ export function useVersionDisplay() {
     const nightlyCommit = NIGHTLY_VERSION_RE.exec(version.value)?.[1];
     return nightlyCommit
       ? `https://github.com/rommapp/romm/commit/${nightlyCommit}`
-      : `https://github.com/rommapp/romm/releases/tag/${version.value}`;
+      : versionTagUrl(version.value);
   });
 
   return { version, href };
