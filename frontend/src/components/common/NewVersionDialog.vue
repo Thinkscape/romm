@@ -5,7 +5,8 @@ import { onMounted, ref } from "vue";
 import storeHeartbeat from "@/stores/heartbeat";
 
 const heartbeat = storeHeartbeat();
-const { VERSION } = heartbeat.value.SYSTEM;
+// Fork builds are tagged <upstream>-thinkscape.N; compare them as their upstream base.
+const VERSION = heartbeat.value.SYSTEM.VERSION.replace(/-thinkscape\.\d+$/, "");
 const GITHUB_VERSION = ref(VERSION);
 const latestVersionDismissed = ref(VERSION === "development");
 const dismissedVersion = useLocalStorage("ui.dismissedVersion", "");

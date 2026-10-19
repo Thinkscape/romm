@@ -3,7 +3,7 @@
 // installs every member, follows membership changes, and mirrors the
 // collection in its launcher; the server only stores the subscription set.
 import { RBtn, RCheckbox, RDialog, REmptyState, RSpinner } from "@v2/lib";
-import { computed, ref } from "vue";
+import { computed, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 import type { DeviceSchema } from "@/__generated__";
 import collectionSyncApi from "@/services/api/collection-sync";
@@ -25,7 +25,9 @@ const snackbar = useSnackbar();
 const alive = useIsAlive();
 
 const show = ref(false);
-const target = ref<Target | null>(null);
+// shallowRef: a deep ref would store a reactive proxy of the event payload,
+// so the identity check in isCurrent() would never match the raw object.
+const target = shallowRef<Target | null>(null);
 const loading = ref(false);
 const saving = ref(false);
 const loadError = ref<string | null>(null);
