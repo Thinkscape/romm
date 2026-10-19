@@ -78,6 +78,12 @@ function run(fn: () => void | Promise<void>) {
     @click="run(actions.installOnDevice)"
   />
   <RMenuItem
+    v-if="actions.canUninstallFromDevice.value"
+    :label="t('rom.uninstall-from-device')"
+    icon="mdi-cellphone-remove"
+    @click="run(actions.uninstallFromDevice)"
+  />
+  <RMenuItem
     v-if="actions.canShareQR.value"
     :label="t('rom.share-qr')"
     icon="mdi-qrcode"

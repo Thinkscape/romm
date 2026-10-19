@@ -29,6 +29,7 @@ from utils.auth import require_device, token_reaches_device
 from utils.client_tokens import record_token_event
 from utils.router import APIRouter
 
+from .collections import router as collections_router
 from .install import router as install_router
 
 router = APIRouter(
@@ -37,6 +38,7 @@ router = APIRouter(
 )
 
 router.include_router(install_router)
+router.include_router(collections_router)
 
 # Flags a device reports about itself, such as {"remote_install": true}.
 DeviceCapabilities = Annotated[

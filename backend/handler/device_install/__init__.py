@@ -10,7 +10,11 @@ from redis.asyncio.client import Pipeline
 from redis.exceptions import WatchError
 
 from config import DEVICE_INSTALL_REQUEST_TTL_DAYS
-from endpoints.responses.device.install import InstallRequestSchema, InstallStatus
+from endpoints.responses.device.install import (
+    InstallAction,
+    InstallRequestSchema,
+    InstallStatus,
+)
 from handler.redis_handler import as_text, async_cache
 from logger.logger import log
 
@@ -79,7 +83,12 @@ def _rom_key(user_id: int, rom_id: int) -> str:
 
 
 def _active_key(request: InstallRequestSchema) -> str:
-    return f"install:active:{request.user_id}:{request.device_id}:{request.rom_id}"
+    """One live request per action for a rom on a device; an install and an
+    uninstall may both wait, and the device runs them oldest first."""
+    key = f"install:active:{request.user_id}:{request.device_id}:{request.rom_id}"
+    if request.action == InstallAction.UNINSTALL:
+        return f"{key}:{InstallAction.UNINSTALL}"
+    return key
 
 
 class DeviceInstallHandler:
@@ -92,6 +101,7 @@ class DeviceInstallHandler:
         device_id: str,
         rom_id: int,
         file_ids: list[int],
+        action: InstallAction = InstallAction.INSTALL,
     ) -> tuple[InstallRequestSchema, bool]:
         """The live request for the rom on the device, and whether this call queued it.
 
@@ -104,6 +114,7 @@ class DeviceInstallHandler:
             user_id=user_id,
             device_id=device_id,
             rom_id=rom_id,
+            action=action,
             file_ids=file_ids,
             status=InstallStatus.PENDING,
             reason=None,

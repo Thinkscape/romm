@@ -118,6 +118,45 @@ def base_url(mocker):
             "No space left",
             "https://romm.example.com/rom/12",
         ),
+        (
+            NotificationKind.DEVICE_INSTALL_COMPLETED,
+            {
+                "rom_name": "Zelda",
+                "rom_id": 12,
+                "device_name": "Thor",
+                "status": "done",
+                "action": "uninstall",
+            },
+            "Zelda was removed from Thor",
+            None,
+            "https://romm.example.com/rom/12",
+        ),
+        (
+            NotificationKind.DEVICE_INSTALL_COMPLETED,
+            {
+                "rom_name": "Zelda",
+                "rom_id": 12,
+                "device_name": "Thor",
+                "status": "not_installed",
+                "action": "uninstall",
+            },
+            "Zelda was not installed on Thor",
+            None,
+            "https://romm.example.com/rom/12",
+        ),
+        (
+            NotificationKind.DEVICE_INSTALL_FAILED,
+            {
+                "rom_name": "Zelda",
+                "rom_id": 12,
+                "device_name": "Thor",
+                "reason": "Busy",
+                "action": "uninstall",
+            },
+            "Zelda could not be removed from Thor",
+            "Busy",
+            "https://romm.example.com/rom/12",
+        ),
     ],
 )
 def test_words_romms_own_kinds_in_english(kind, data, title, body, url):

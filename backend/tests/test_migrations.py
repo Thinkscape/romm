@@ -1519,3 +1519,44 @@ def test_the_sort_key_backfill_keeps_its_original_rule(mocker):
     assert (
         migration._sort_key("The Legend of Zelda 2") == "legend of zelda 000000000002"
     )
+def test_the_collection_device_syncs_revision_follows_save_channels():
+    """0162 adds `collection_device_syncs` on top of 0161 and can be reversed."""
+    migration = _load_migration("0162_collection_device_syncs.py")
+
+    assert migration.revision == "0162_collection_device_syncs"
+    assert migration.down_revision == "0161_save_channels"
+    assert callable(migration.downgrade)
+
+    with sync_engine.connect() as connection:
+        inspector = sa.inspect(connection)
+        columns = {
+            column["name"]
+            for column in inspector.get_columns("collection_device_syncs")
+        }
+        unique_column_sets = [
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints(
+                "collection_device_syncs"
+            )
+        ] + [
+            tuple(index["column_names"])
+            for index in inspector.get_indexes("collection_device_syncs")
+            if index.get("unique")
+        ]
+        foreign_keys = {
+            (tuple(fk["constrained_columns"]), fk["referred_table"])
+            for fk in inspector.get_foreign_keys("collection_device_syncs")
+        }
+
+    assert columns == {
+        "id",
+        "user_id",
+        "device_id",
+        "collection_kind",
+        "collection_id",
+        "created_at",
+        "updated_at",
+    }
+    assert ("device_id", "collection_kind", "collection_id") in unique_column_sets
+    assert (("device_id",), "devices") in foreign_keys
+    assert (("user_id",), "users") in foreign_keys

@@ -66,6 +66,7 @@ function installRequest(
     user_id: 1,
     device_id: "handheld",
     rom_id: ROM.id,
+    action: "install",
     file_ids: [10],
     status: "pending",
     reason: null,
@@ -75,8 +76,12 @@ function installRequest(
   };
 }
 
-function mountDialog(emitter: Emitter<Events>): VueWrapper {
+function mountDialog(
+  emitter: Emitter<Events>,
+  action: "install" | "uninstall" = "install",
+): VueWrapper {
   return mount(InstallOnDeviceDialog, {
+    props: { action },
     global: {
       provide: { emitter },
       stubs: {
@@ -192,7 +197,10 @@ describe("InstallOnDeviceDialog", () => {
     await flushPromises();
 
     expect(createInstall).toHaveBeenCalledOnce();
-    expect(createInstall).toHaveBeenCalledWith("handheld", { rom_id: ROM.id });
+    expect(createInstall).toHaveBeenCalledWith("handheld", {
+      rom_id: ROM.id,
+      action: "install",
+    });
     expect(wrapper.find("[data-test-subtitle]").text()).toBe(
       "rom.install-on-device-status-pending",
     );
@@ -330,5 +338,61 @@ describe("InstallOnDeviceDialog", () => {
     const input = wrapper.find("[data-test-device] input");
     expect(input.attributes("disabled")).toBeDefined();
     expect((input.element as HTMLInputElement).checked).toBe(true);
+  });
+});
+
+describe("InstallOnDeviceDialog in uninstall mode", () => {
+  async function openUninstall(devices: DeviceSchema[]) {
+    fetchDevices.mockResolvedValue({ data: devices });
+    const emitter = mitt<Events>();
+    const wrapper = mountDialog(emitter, "uninstall");
+    emitter.emit("showUninstallFromDeviceDialog", ROM);
+    await flushPromises();
+    return wrapper;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    socketHandlers.clear();
+    fetchOnlineDeviceIds.mockResolvedValue({ data: [] });
+    fetchRomInstalls.mockResolvedValue({ data: [] });
+    createInstall.mockImplementation((deviceId: string) =>
+      Promise.resolve({
+        data: installRequest({ device_id: deviceId, action: "uninstall" }),
+      }),
+    );
+  });
+
+  it("lists only the devices that accept uninstalls", async () => {
+    const wrapper = await openUninstall([
+      device("handheld"),
+      {
+        ...device("deck"),
+        capabilities: { remote_install: true, remote_uninstall: true },
+      },
+    ]);
+
+    expect(wrapper.findAll("[data-test-device]")).toHaveLength(1);
+    expect(wrapper.text()).toContain("deck");
+  });
+
+  it("sends an uninstall request and ignores install requests", async () => {
+    fetchRomInstalls.mockResolvedValue({
+      data: [installRequest({ device_id: "deck", status: "done" })],
+    });
+    const wrapper = await openUninstall([
+      { ...device("deck"), capabilities: { remote_uninstall: true } },
+    ]);
+    const input = wrapper.find("[data-test-device] input");
+    expect((input.element as HTMLInputElement).checked).toBe(false);
+
+    await input.setValue(true);
+    vi.advanceTimersByTime(3000);
+    await flushPromises();
+
+    expect(createInstall).toHaveBeenCalledWith("deck", {
+      rom_id: ROM.id,
+      action: "uninstall",
+    });
   });
 });

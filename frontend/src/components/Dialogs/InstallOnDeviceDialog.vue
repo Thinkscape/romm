@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type {
   DeviceSchema,
+  InstallAction,
   InstallRequestSchema,
   InstallStatus,
 } from "@/__generated__";
@@ -19,17 +20,68 @@ import { errorMessage } from "@/utils/errorMessage";
 
 defineOptions({ inheritAttrs: false });
 
+// One dialog, two directions: the same device picker sends either installs or
+// uninstalls. GlobalDialogs mounts one instance per action.
+const props = withDefaults(defineProps<{ action?: InstallAction }>(), {
+  action: "install",
+});
+
+interface ActionCopy {
+  event: "showInstallOnDeviceDialog" | "showUninstallFromDeviceDialog";
+  capability: "remote_install" | "remote_uninstall";
+  icon: string;
+  title: string;
+  empty: string;
+  failed: string;
+  cancelFailed: string;
+  delivered: InstallStatus[];
+  statusLabels: Record<InstallStatus, string>;
+}
+
+const ACTION_COPY: Record<InstallAction, ActionCopy> = {
+  install: {
+    event: "showInstallOnDeviceDialog",
+    capability: "remote_install",
+    icon: "mdi-cellphone-arrow-down",
+    title: "rom.install-on-device",
+    empty: "rom.install-on-device-empty",
+    failed: "rom.install-on-device-failed",
+    cancelFailed: "rom.install-on-device-cancel-failed",
+    delivered: ["done", "already_installed"],
+    statusLabels: {
+      pending: "rom.install-on-device-status-pending",
+      taken: "rom.install-on-device-status-taken",
+      done: "rom.install-on-device-status-done",
+      already_installed: "rom.install-on-device-status-already-installed",
+      not_installed: "rom.uninstall-from-device-status-not-installed",
+      failed: "rom.install-on-device-status-failed",
+      cancelled: "rom.install-on-device-status-cancelled",
+    },
+  },
+  uninstall: {
+    event: "showUninstallFromDeviceDialog",
+    capability: "remote_uninstall",
+    icon: "mdi-cellphone-remove",
+    title: "rom.uninstall-from-device",
+    empty: "rom.uninstall-from-device-empty",
+    failed: "rom.uninstall-from-device-failed",
+    cancelFailed: "rom.uninstall-from-device-cancel-failed",
+    delivered: ["done", "not_installed"],
+    statusLabels: {
+      pending: "rom.install-on-device-status-pending",
+      taken: "rom.uninstall-from-device-status-taken",
+      done: "rom.uninstall-from-device-status-done",
+      already_installed: "rom.install-on-device-status-already-installed",
+      not_installed: "rom.uninstall-from-device-status-not-installed",
+      failed: "rom.install-on-device-status-failed",
+      cancelled: "rom.install-on-device-status-cancelled",
+    },
+  },
+};
+
 const SEND_DELAY_MS = 3000;
 const ACTIVE_STATUSES: InstallStatus[] = ["pending", "taken"];
-const DELIVERED_STATUSES: InstallStatus[] = ["done", "already_installed"];
-const STATUS_LABEL_KEYS: Record<InstallStatus, string> = {
-  pending: "rom.install-on-device-status-pending",
-  taken: "rom.install-on-device-status-taken",
-  done: "rom.install-on-device-status-done",
-  already_installed: "rom.install-on-device-status-already-installed",
-  failed: "rom.install-on-device-status-failed",
-  cancelled: "rom.install-on-device-status-cancelled",
-};
+const copy = ACTION_COPY[props.action];
 
 const { t } = useI18n();
 const { mdAndUp } = useBreakpoint();
@@ -53,7 +105,7 @@ function lastSeenTime(device: DeviceSchema): number {
 
 const installableDevices = computed(() =>
   devices.value
-    .filter((device) => device.capabilities?.remote_install === true)
+    .filter((device) => device.capabilities?.[copy.capability] === true)
     .sort((a, b) => lastSeenTime(b) - lastSeenTime(a)),
 );
 
@@ -62,6 +114,8 @@ function isCurrent(romId: number): boolean {
 }
 
 function applyRequest(request: InstallRequestSchema) {
+  // Requests from before the action field existed are installs.
+  if ((request.action ?? "install") !== props.action) return;
   const current = requests.value.get(request.device_id);
   if (current && current.created_at > request.created_at) return;
   if (current?.id === request.id && current.updated_at > request.updated_at) {
@@ -122,7 +176,7 @@ const openHandler = (target: SimpleRom) => {
   show.value = true;
   void load(target);
 };
-useEmitterEvent("showInstallOnDeviceDialog", openHandler);
+useEmitterEvent(copy.event, openHandler);
 onBeforeUnmount(() => {
   sendPendingNow();
 });
@@ -137,14 +191,14 @@ async function send(deviceId: string, target: SimpleRom) {
   try {
     const { data } = await deviceInstallApi.createInstall(deviceId, {
       rom_id: target.id,
+      action: props.action,
     });
     if (isCurrent(target.id)) applyRequest(data);
   } catch (error) {
     if (!alive.value) return;
-    snackbar.error(
-      t("rom.install-on-device-failed", { error: errorMessage(error) }),
-      { icon: "mdi-close-circle" },
-    );
+    snackbar.error(t(copy.failed, { error: errorMessage(error) }), {
+      icon: "mdi-close-circle",
+    });
   } finally {
     inFlight.delete(deviceId);
   }
@@ -173,10 +227,9 @@ async function cancel(request: InstallRequestSchema) {
     if (isCurrent(data.rom_id)) applyRequest(data);
   } catch (error) {
     if (!alive.value) return;
-    snackbar.error(
-      t("rom.install-on-device-cancel-failed", { error: errorMessage(error) }),
-      { icon: "mdi-close-circle" },
-    );
+    snackbar.error(t(copy.cancelFailed, { error: errorMessage(error) }), {
+      icon: "mdi-close-circle",
+    });
   } finally {
     inFlight.delete(request.device_id);
   }
@@ -195,7 +248,7 @@ function settledStatus(device: DeviceSchema): InstallStatus | undefined {
 
 function isDelivered(device: DeviceSchema): boolean {
   const status = settledStatus(device);
-  return status !== undefined && DELIVERED_STATUSES.includes(status);
+  return status !== undefined && copy.delivered.includes(status);
 }
 
 function isChecked(device: DeviceSchema): boolean {
@@ -230,7 +283,7 @@ function subtitleFor(device: DeviceSchema): string | undefined {
   }
   const request = requests.value.get(device.id);
   if (!request) return undefined;
-  const label = t(STATUS_LABEL_KEYS[request.status]);
+  const label = t(copy.statusLabels[request.status]);
   return request.status === "failed" && request.reason
     ? `${label}: ${request.reason}`
     : label;
@@ -264,14 +317,14 @@ function closeDialog() {
 <template>
   <RDialog
     v-model="show"
-    icon="mdi-cellphone-arrow-down"
+    :icon="copy.icon"
     :width="mdAndUp ? 440 : '95vw'"
     @close="closeDialog"
   >
     <template #header>
       <div class="r-install-device__head">
         <span class="r-install-device__title">
-          {{ t("rom.install-on-device") }}
+          {{ t(copy.title) }}
         </span>
         <span v-if="rom" class="r-install-device__subtitle">
           {{ rom.name ?? rom.fs_name }}
@@ -302,7 +355,7 @@ function closeDialog() {
         variant="boxed"
         size="small"
         icon="mdi-cellphone-off"
-        :hint="t('rom.install-on-device-empty')"
+        :hint="t(copy.empty)"
       />
       <ul v-else class="r-install-device__list">
         <li v-for="device in installableDevices" :key="device.id">

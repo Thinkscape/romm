@@ -40,6 +40,8 @@ defineProps<{
   tab: string;
   tabs: RTabNavItem[];
   canDownload: boolean;
+  /** Regular / smart collections the caller may push to their devices. */
+  canSyncToDevice?: boolean;
   randomLoading?: boolean;
 }>();
 
@@ -47,6 +49,7 @@ defineEmits<{
   (e: "update:tab", v: string): void;
   (e: "random"): void;
   (e: "download"): void;
+  (e: "sync-to-device"): void;
 }>();
 </script>
 
@@ -103,6 +106,16 @@ defineEmits<{
         :aria-label="t('collection.download-collection')"
         :tooltip="t('collection.download-collection')"
         @click="$emit('download')"
+      />
+      <RBtn
+        v-if="canSyncToDevice"
+        variant="outlined"
+        surface
+        icon="mdi-cellphone-link"
+        rounded="circle"
+        :aria-label="t('collection.sync-to-device')"
+        :tooltip="t('collection.sync-to-device')"
+        @click="$emit('sync-to-device')"
       />
     </template>
   </InfoPanel>
