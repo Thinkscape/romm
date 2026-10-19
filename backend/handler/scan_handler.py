@@ -1721,6 +1721,13 @@ async def scan_rom(
             if ranked[0] == MetadataSource.SGDB:
                 rom_attrs["url_cover"] = sgdb_cover
 
+    # A source can match by id without returning a title, and a new ROM carries
+    # no stored name forward, so fall back to the filename like the insert does.
+    if not rom_attrs.get("name"):
+        rom_attrs["name"] = fs_rom_handler.get_file_name_with_no_tags(
+            rom_attrs["fs_name"]
+        )
+
     log.info(
         f"{hl(rom_attrs['fs_name'])} identified as {hl(rom_attrs['name'], color=BLUE)} {emoji.EMOJI_ALIEN_MONSTER}",
         extra=LOGGER_MODULE_NAME,

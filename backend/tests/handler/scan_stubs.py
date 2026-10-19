@@ -40,6 +40,7 @@ async def run_scan(
     *,
     scan_type: ScanType,
     metadata_sources: list[str],
+    newly_added: bool = False,
 ) -> Rom:
     """Scan `rom` with no files on disk, so only the name-based lookups run."""
     async with initialize_context():
@@ -58,5 +59,5 @@ async def run_scan(
                 "ra_hash": "",
             },
             metadata_sources=metadata_sources,
-            newly_added=False,
+            newly_added=newly_added,
         )

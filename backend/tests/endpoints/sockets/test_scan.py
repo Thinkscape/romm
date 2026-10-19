@@ -1351,6 +1351,64 @@ class TestIdentifyRomPersistsFileCategory:
         assert persisted.category == RomFileCategory.UPDATE
 
 
+class TestIdentifyRomSavesFilesWhenScanFails:
+    """A new entry is inserted before `scan_rom` runs, so an identification
+    error must not leave that row without its files."""
+
+    @pytest.fixture
+    def patched(self, mocker):
+        rom_file = RomFile(
+            file_name="Game (USA).sfc",
+            file_path="snes/roms",
+            file_size_bytes=1024,
+        )
+        db, platform = patch_identify_rom(
+            mocker,
+            parsed=ParsedRomFiles(
+                rom_files=[rom_file],
+                crc_hash="crc",
+                md5_hash="md5",
+                sha1_hash="sha1",
+                ra_hash="",
+            ),
+            roms_fs_structure="snes/roms",
+            name_with_no_tags="Game",
+            platform_slug="snes",
+        )
+        mocker.patch.object(scan_module, "persist_soundtrack_cover")
+        mocker.patch.object(
+            scan_module, "scan_rom", AsyncMock(side_effect=KeyError("name"))
+        )
+        db.get_matching_missing_rom.return_value = None
+        db.sync_rom_files.side_effect = lambda rom_id, files: SyncedRomFiles(
+            files=list(files), orphaned_cover_paths=[]
+        )
+        return db, platform, rom_file
+
+    async def test_new_entry_keeps_its_files(self, patched):
+        db, platform, rom_file = patched
+
+        with pytest.raises(KeyError):
+            await _identify_rom(
+                platform=platform,
+                fs_rom=make_fs_rom("Game (USA).sfc", "snes/roms"),
+                rom=None,
+                scan_type=ScanType.QUICK,
+                roms_ids=[],
+                metadata_sources=[],
+                launchbox_remote_enabled=False,
+                socket_manager=AsyncMock(),
+                scan_stats=AsyncMock(),
+                scanned_rom_ids=set(),
+            )
+
+        # Only the initial insert ran; the files still landed on that row.
+        assert db.add_rom.call_count == 1
+        created = db.add_rom.call_args.args[0]
+        assert created.name == "Game"
+        db.sync_rom_files.assert_called_once_with(99, [rom_file])
+
+
 class TestIdentifyPlatformMarksMissingBeforeScan:
     """`_identify_platform` must flag missing entries before identifying files.
 
