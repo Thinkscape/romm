@@ -221,6 +221,75 @@ def test_lookup_hashes_tolerates_a_member_without_a_size():
     )
 
 
+_MT32_PCM = {
+    "name": "MT32_PCM.ROM",
+    "size": 524288,
+    "crc_hash": "573e31cc",
+    "md5_hash": "89e42e386e82e0cacb4a2704a03706ca",
+    "sha1_hash": "f6b1eebc4b2d200ec6d3d21d51325d5b48c60252",
+}
+_MT32_CONTROL = {
+    "name": "MT32_CONTROL.ROM",
+    "size": 65536,
+    "crc_hash": "627b9a51",
+    "md5_hash": "9513fec4f09a7d327748340ce3a2a59b",
+    "sha1_hash": "7b8c2a5ddb42fd0732e2f22b3340dcf5360edf92",
+}
+
+
+def test_lookup_hashes_skips_bundled_mt32_roms():
+    """A DOS zip with the MT-32 ROMs added is identified by the game's own
+    largest file, not by the PCM ROM that outweighs it ("MT-32 ROM")."""
+    file = _archive(
+        archive_members=[
+            _MT32_PCM,
+            {
+                "name": "wordtris.exe",
+                "size": 192116,
+                "crc_hash": "46508995",
+                "md5_hash": "1bb7d9be90825a694e9cd76e8ae0ee7a",
+                "sha1_hash": "3df6d1b4cd4e6fe80ae0b8e4ff1d161df9ce11c8",
+            },
+            _MT32_CONTROL,
+        ],
+    )
+
+    assert file.lookup_hashes == LookupHashes(
+        crc="46508995",
+        md5="1bb7d9be90825a694e9cd76e8ae0ee7a",
+        sha1="3df6d1b4cd4e6fe80ae0b8e4ff1d161df9ce11c8",
+    )
+
+
+def test_lookup_hashes_matches_sound_module_roms_case_insensitively():
+    file = _archive(
+        archive_members=[
+            {**_MT32_PCM, "sha1_hash": _MT32_PCM["sha1_hash"].upper()},
+            {
+                "name": "game.exe",
+                "size": 1000,
+                "crc_hash": "gamecrc",
+                "md5_hash": "gamemd5",
+                "sha1_hash": "gamesha1",
+            },
+        ],
+    )
+
+    assert file.lookup_hashes.sha1 == "gamesha1"
+
+
+def test_lookup_hashes_of_an_mt32_only_archive_keeps_the_largest_rom():
+    """An archive holding nothing but the sound module ROMs is that ROM set, so
+    it is still looked up by its largest member."""
+    file = _archive(archive_members=[_MT32_CONTROL, _MT32_PCM])
+
+    assert file.lookup_hashes == LookupHashes(
+        crc="573e31cc",
+        md5="89e42e386e82e0cacb4a2704a03706ca",
+        sha1="f6b1eebc4b2d200ec6d3d21d51325d5b48c60252",
+    )
+
+
 @pytest.mark.parametrize(
     "stored",
     [

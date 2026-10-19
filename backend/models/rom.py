@@ -374,6 +374,53 @@ class LookupHashes(NamedTuple):
     sha1: str | None
 
 
+# SHA1s of the Roland MT-32 / CM-32L sound module ROMs, from munt's ROMInfo.cpp
+# (full images and the split halves some dumps ship). DOS game zips are often
+# repacked with them next to the game's own files, so DOSBox Pure, DOSBox-X and
+# Staging find them with no setup. The 512 KiB PCM ROM is then often the
+# biggest file in the archive, and a lookup by it identifies every such game as
+# "MT-32 ROM" (Hasheous' PureDOS DAT lists it), so these files never identify
+# an archive that holds anything else.
+SOUND_MODULE_ROM_SHA1S: Final[frozenset[str]] = frozenset(
+    {
+        # MT-32 control ROMs v1.04-v1.07, Blue Ridge, v2.03-v2.07
+        "9cd4858014c4e8a9dff96053f784bfaac1092a2e",
+        "fe8db469b5bfeb37edb269fd47e3ce6d91014652",
+        "5a5cb5a77d7d55ee69657c2f870416daed52dea7",
+        "57a09d80d2f7ca5b9734edbe9645e6e700f83701",
+        "52e3c6666db9ef962591a8ee99be0cde17f3a6b6",
+        "e17a3a6d265bf1fa150312061134293d2b58288c",
+        "cc83bf23cee533097fb4c7e2c116e43b50ebacc8",
+        "bf4f15666bc46679579498386704893b630c1171",
+        "a553481f4e2794c10cfe597fef154eef0d8257de",
+        "13f06b38f0d9e0fc050b6503ab777bb938603260",
+        "c55e165487d71fa88bd8c5e9c083bc456c1a89aa",
+        "b083518fffb7f66b03c23b7eb4f868e62dc5a987",
+        "11a6ae5d8b6ee328b371af7f1e40b82125aa6b4d",
+        "e0934320d7cbb5edfaa29e0d01ae835ef620085b",
+        "7b8c2a5ddb42fd0732e2f22b3340dcf5360edf92",
+        "5837064c9df4741a55f7c4d8787ac158dff2d3ce",
+        "2c16432b6c73dd2a3947cba950a0f4c19d6180eb",
+        "2869cf4c235d671668cfcb62415e2ce8323ad4ed",
+        "47b52adefedaec475c925e54340e37673c11707c",
+        # CM-32L / LAPC-I and CM-32LN control ROMs
+        "73683d585cd6948cc19547942ca0e14a0319456d",
+        "a439fbb390da38cada95a7cbb1d6ca199cd66ef8",
+        "dc1c5b1b90a4646d00f7daf3679733c7badc7077",
+        # MT-32 PCM ROM (full, low, high) and CM-32L PCM ROM (full, high)
+        "f6b1eebc4b2d200ec6d3d21d51325d5b48c60252",
+        "3a1e19b0cd4036623fd1d1d11f5f25995585962b",
+        "2cadb99d21a6a4a6f5b61b6218d16e9b43f61d01",
+        "289cc298ad532b702461bfc738009d9ebe8025ea",
+        "3ad889fde5db5b6437cbc2eb6e305312fec3df93",
+    }
+)
+
+
+def _is_sound_module_rom(member: Mapping[str, Any]) -> bool:
+    return (member.get("sha1_hash") or "").lower() in SOUND_MODULE_ROM_SHA1S
+
+
 class RomFile(BaseModel):
     __tablename__ = "rom_files"
 
@@ -459,13 +506,17 @@ class RomFile(BaseModel):
         Often not the file's own digests: a CHD is indexed by the disc data
         embedded in its header, and a multi-file archive by its largest member
         (the ROM itself, next to readmes and the like). The file's own hashes
-        cover the container, which no database holds.
+        cover the container, which no database holds. Bundled MT-32/CM-32L
+        ROMs are passed over, since they would identify the archive as them.
         """
         if self.chd_sha1_hash:
             return LookupHashes(crc=None, md5=None, sha1=self.chd_sha1_hash)
 
         if self.archive_members:
-            largest = max(self.archive_members, key=lambda m: m.get("size") or 0)
+            candidates = [
+                m for m in self.archive_members if not _is_sound_module_rom(m)
+            ] or self.archive_members
+            largest = max(candidates, key=lambda m: m.get("size") or 0)
             return LookupHashes(
                 crc=largest.get("crc_hash"),
                 md5=largest.get("md5_hash"),

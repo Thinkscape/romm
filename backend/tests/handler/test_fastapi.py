@@ -1361,6 +1361,52 @@ async def test_lookup_rom_sends_the_largest_archive_member_hashes(
 
 @patch.object(meta_hasheous_handler, "_request", new_callable=AsyncMock)
 @patch.object(meta_hasheous_handler, "is_enabled", return_value=True)
+async def test_lookup_rom_skips_a_bundled_mt32_pcm_rom(mock_is_enabled, mock_request):
+    """A DOS zip carrying the MT-32 ROMs must not be sent as the PCM ROM, which
+    Hasheous knows as the game "MT-32 ROM"."""
+    mock_request.return_value = {}
+
+    files = [
+        _top_level_rom_file(
+            file_name="Wordtris (1992).zip",
+            file_size_bytes=1371062,
+            crc_hash="compositecrc",
+            md5_hash="compositemd5",
+            sha1_hash="compositesha1",
+            archive_members=[
+                {
+                    "name": "MT32_PCM.ROM",
+                    "size": 524288,
+                    "crc_hash": "573e31cc",
+                    "md5_hash": "89e42e386e82e0cacb4a2704a03706ca",
+                    "sha1_hash": "f6b1eebc4b2d200ec6d3d21d51325d5b48c60252",
+                },
+                {
+                    "name": "wordtris.exe",
+                    "size": 192116,
+                    "crc_hash": "gamecrc",
+                    "md5_hash": "gamemd5",
+                    "sha1_hash": "gamesha1",
+                },
+                {
+                    "name": "MT32_CONTROL.ROM",
+                    "size": 65536,
+                    "crc_hash": "627b9a51",
+                    "md5_hash": "9513fec4f09a7d327748340ce3a2a59b",
+                    "sha1_hash": "7b8c2a5ddb42fd0732e2f22b3340dcf5360edf92",
+                },
+            ],
+        ),
+    ]
+
+    await meta_hasheous_handler.lookup_rom("dos", files)
+
+    sent_data = mock_request.call_args.kwargs["data"]
+    assert sent_data == [{"mD5": "gamemd5", "shA1": "gamesha1", "crc": "gamecrc"}]
+
+
+@patch.object(meta_hasheous_handler, "_request", new_callable=AsyncMock)
+@patch.object(meta_hasheous_handler, "is_enabled", return_value=True)
 async def test_lookup_rom_maps_every_hasheous_signature_source(
     mock_is_enabled, mock_request
 ):
