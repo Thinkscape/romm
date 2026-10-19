@@ -25,7 +25,8 @@ defineOptions({ inheritAttrs: false });
 
 const { t } = useI18n();
 const heartbeat = storeHeartbeat();
-const { VERSION } = heartbeat.value.SYSTEM;
+// Fork builds are tagged <upstream>-thinkscape.N; compare them as their upstream base.
+const VERSION = heartbeat.value.SYSTEM.VERSION.replace(/-thinkscape\.\d+$/, "");
 
 const latestVersion = ref(VERSION);
 const dismissed = ref(VERSION === "development");
