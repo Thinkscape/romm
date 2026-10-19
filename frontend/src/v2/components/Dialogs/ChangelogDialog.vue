@@ -3,10 +3,19 @@
 // the public GitHub API on first open and reuses the cached payload on
 // subsequent opens within the same session. Each release renders as a
 // glass-panel block (tag + date) with the release body rendered through
-// MdPreview, the same markdown surface NotesTab uses.
+// MdPreview, the same markdown surface NotesTab uses. Fork builds
+// (<upstream>-thinkscape.N) have no GitHub releases, so they render a single
+// block listing the fork's own commits on top of their upstream base tag.
 import { RBtn, RDialog, REmptyState, RIcon, RSpinner } from "@v2/lib";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import storeHeartbeat from "@/stores/heartbeat";
+import {
+  FORK_COMMITS_URL,
+  forkBaseVersion,
+  forkCompareApiUrl,
+  versionTagUrl,
+} from "@/utils/forkVersion";
 import {
   AsyncMdPreview as MdPreview,
   loadMdPreview,
@@ -28,9 +37,55 @@ type Release = {
   draft: boolean;
 };
 
+type CompareCommit = {
+  sha: string;
+  html_url: string;
+  commit: { message: string; committer: { date: string } | null };
+};
+
 const REPO = "rommapp/romm";
 const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases?per_page=10`;
-const RELEASES_PAGE_URL = `https://github.com/${REPO}/releases`;
+
+const heartbeatStore = storeHeartbeat();
+const runningVersion = computed(() => heartbeatStore.value.SYSTEM.VERSION);
+const RELEASES_PAGE_URL = computed(() =>
+  forkBaseVersion(runningVersion.value) === null
+    ? `https://github.com/${REPO}/releases`
+    : FORK_COMMITS_URL,
+);
+
+// The fork's commits between its upstream base tag and the running fork tag,
+// newest first, as one changelog block linking the fork tag.
+async function fetchForkChangelog(
+  version: string,
+  compareUrl: string,
+): Promise<Release[]> {
+  const res = await fetch(compareUrl, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  const data: { commits: CompareCommit[] } = await res.json();
+  const commits = [...data.commits].reverse();
+  const lines = commits.map(
+    (c) =>
+      `- ${c.commit.message.split("\n")[0]} ([${c.sha.slice(0, 7)}](${c.html_url}))`,
+  );
+  return [
+    {
+      tag_name: version,
+      name: null,
+      html_url: versionTagUrl(version),
+      published_at: commits[0]?.commit.committer?.date ?? "",
+      body: [
+        `Thinkscape fork of RomM ${forkBaseVersion(version)}, ${commits.length} commit(s) on top of upstream:`,
+        "",
+        ...lines,
+      ].join("\n"),
+      prerelease: false,
+      draft: false,
+    },
+  ];
+}
 
 const { t, locale } = useI18n();
 const { isLight: isLightTheme } = useThemeMode();
@@ -46,7 +101,16 @@ const {
   execute: fetchReleases,
 } = useFetchState(
   async () => {
+    const version = runningVersion.value;
+    const compareUrl = forkCompareApiUrl(version);
     // The renderer downloads alongside the releases, so the spinner covers both.
+    if (compareUrl !== null) {
+      const [forkReleases] = await Promise.all([
+        fetchForkChangelog(version, compareUrl),
+        loadMdPreview(),
+      ]);
+      return forkReleases;
+    }
     const [res] = await Promise.all([
       fetch(RELEASES_URL, {
         headers: { Accept: "application/vnd.github+json" },

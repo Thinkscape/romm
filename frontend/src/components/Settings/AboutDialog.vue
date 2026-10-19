@@ -5,6 +5,7 @@ import RDialog from "@/components/common/RDialog.vue";
 import RIsotipo from "@/components/common/RIsotipo.vue";
 import storeHeartbeat from "@/stores/heartbeat";
 import type { Events } from "@/types/emitter";
+import { sourceRepoUrl, versionTagUrl } from "@/utils/forkVersion";
 
 const heartbeatStore = storeHeartbeat();
 const emitter = inject<Emitter<Events>>("emitter");
@@ -32,7 +33,7 @@ function closeDialog() {
           <v-divider class="my-2" />
           <v-hover v-slot="{ isHovering, props }">
             <a
-              :href="`https://github.com/rommapp/romm/releases/tag/${heartbeatStore.value.SYSTEM.VERSION}`"
+              :href="versionTagUrl(heartbeatStore.value.SYSTEM.VERSION)"
               target="_blank"
               rel="noopener noreferrer"
               class="text-decoration-none text-primary"
@@ -51,7 +52,7 @@ function closeDialog() {
           <v-divider class="my-2" />
           <v-hover v-slot="{ isHovering, props }">
             <a
-              href="https://github.com/rommapp/romm"
+              :href="sourceRepoUrl(heartbeatStore.value.SYSTEM.VERSION)"
               target="_blank"
               rel="noopener noreferrer"
               class="text-decoration-none text-primary"

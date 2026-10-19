@@ -3,10 +3,12 @@ import { useLocalStorage } from "@vueuse/core";
 import semver from "semver";
 import { onMounted, ref } from "vue";
 import storeHeartbeat from "@/stores/heartbeat";
+import { upstreamReleaseUrl, upstreamVersion } from "@/utils/forkVersion";
 
 const heartbeat = storeHeartbeat();
-// Fork builds are tagged <upstream>-thinkscape.N; compare them as their upstream base.
-const VERSION = heartbeat.value.SYSTEM.VERSION.replace(/-thinkscape\.\d+$/, "");
+// Fork builds (<upstream>-thinkscape.N) compare as their upstream base, and the
+// banner announces a newer upstream release, so it links upstream's notes.
+const VERSION = upstreamVersion(heartbeat.value.SYSTEM.VERSION);
 const GITHUB_VERSION = ref(VERSION);
 const latestVersionDismissed = ref(VERSION === "development");
 const dismissedVersion = useLocalStorage("ui.dismissedVersion", "");
@@ -40,10 +42,7 @@ async function fetchLatestVersion() {
 }
 
 function openNewVersion() {
-  window.open(
-    `https://github.com/rommapp/romm/releases/tag/${GITHUB_VERSION.value}`,
-    "_blank",
-  );
+  window.open(upstreamReleaseUrl(GITHUB_VERSION.value), "_blank");
 }
 
 onMounted(async () => {

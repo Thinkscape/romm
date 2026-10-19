@@ -20,13 +20,15 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useUserLocalStorage } from "@/composables/useUserLocalStorage";
 import storeHeartbeat from "@/stores/heartbeat";
+import { upstreamReleaseUrl, upstreamVersion } from "@/utils/forkVersion";
 
 defineOptions({ inheritAttrs: false });
 
 const { t } = useI18n();
 const heartbeat = storeHeartbeat();
-// Fork builds are tagged <upstream>-thinkscape.N; compare them as their upstream base.
-const VERSION = heartbeat.value.SYSTEM.VERSION.replace(/-thinkscape\.\d+$/, "");
+// Fork builds (<upstream>-thinkscape.N) compare as their upstream base, and the
+// banner announces a newer upstream release, so it links upstream's notes.
+const VERSION = upstreamVersion(heartbeat.value.SYSTEM.VERSION);
 
 const latestVersion = ref(VERSION);
 const dismissed = ref(VERSION === "development");
@@ -47,7 +49,7 @@ function onDismiss() {
 
 function onOpenRelease() {
   window.open(
-    `https://github.com/rommapp/romm/releases/tag/${latestVersion.value}`,
+    upstreamReleaseUrl(latestVersion.value),
     "_blank",
     "noopener,noreferrer",
   );

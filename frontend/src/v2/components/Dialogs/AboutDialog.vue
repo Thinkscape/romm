@@ -6,6 +6,8 @@ import { RDialog, RIcon, RImg, RTooltip } from "@v2/lib";
 import { useResizeObserver } from "@vueuse/core";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import storeHeartbeat from "@/stores/heartbeat";
+import { sourceRepoUrl } from "@/utils/forkVersion";
 import { useEmitterEvent } from "@/v2/composables/useEmitterEvent";
 import { useVersionDisplay } from "@/v2/composables/useVersionDisplay";
 
@@ -13,6 +15,7 @@ defineOptions({ inheritAttrs: false });
 
 const { t } = useI18n();
 const { version, href: versionHref } = useVersionDisplay();
+const heartbeatStore = storeHeartbeat();
 const show = ref(false);
 
 const openHandler = () => {
@@ -43,7 +46,7 @@ const links = computed<Link[]>(() => [
     icon: "mdi-code-braces",
     label: t("common.about-source-code"),
     value: "GitHub",
-    href: "https://github.com/rommapp/romm",
+    href: sourceRepoUrl(heartbeatStore.value.SYSTEM.VERSION),
   },
   {
     icon: "mdi-file-document-outline",
