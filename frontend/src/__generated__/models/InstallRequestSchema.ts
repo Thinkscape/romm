@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { InstallAction } from './InstallAction';
 import type { InstallStatus } from './InstallStatus';
 /**
  * An install request, as served and as stored in Redis while pending or taken.
@@ -11,6 +12,7 @@ export type InstallRequestSchema = {
     user_id: number;
     device_id: string;
     rom_id: number;
+    action: InstallAction;
     file_ids: Array<number>;
     status: InstallStatus;
     reason: (string | null);

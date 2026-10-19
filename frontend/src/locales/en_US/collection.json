@@ -43,5 +43,11 @@
   "smart-create-failed": "Failed to create smart collection",
   "smart-created": "Smart collection created.",
   "smart-no-filters": "Apply some filters before creating a smart collection.",
+  "sync-to-device": "Sync to device",
+  "sync-to-device-empty": "No device can sync collections yet. Update the device app to a version that supports collection sync.",
+  "sync-to-device-hint": "Checked devices install every game in this collection and keep it up to date.",
+  "sync-to-device-load-failed": "Could not load your devices",
+  "sync-to-device-save-failed": "Could not save the device sync: {error}",
+  "sync-to-device-saved": "Device sync saved for {name}",
   "updated": "Collection updated"
 }

@@ -315,6 +315,23 @@ export function useGameActions(
     emitter?.emit("showInstallOnDeviceDialog", rom);
   }
 
+  // Removing a game needs no files on the server and ignores the platform
+  // exclusions, so only the feature flag and the device scopes gate it.
+  const canUninstallFromDevice = computed(() =>
+    Boolean(
+      getRom() &&
+      heartbeat.value.DEVICE_INSTALL.ENABLED &&
+      auth.scopes.includes("devices.read") &&
+      auth.scopes.includes("devices.write"),
+    ),
+  );
+
+  function uninstallFromDevice() {
+    const rom = getRom();
+    if (!rom) return;
+    emitter?.emit("showUninstallFromDeviceDialog", rom);
+  }
+
   const canOpenInFlashpoint = computed(() => {
     const rom = getRom();
     return Boolean(
@@ -638,6 +655,7 @@ export function useGameActions(
     canManageCollections,
     canShareQR,
     canInstallOnDevice,
+    canUninstallFromDevice,
     canOpenInFlashpoint,
     canDownload,
     downloadFormats,
@@ -670,6 +688,7 @@ export function useGameActions(
     share,
     shareQR,
     installOnDevice,
+    uninstallFromDevice,
     openInFlashpoint,
     copyDownloadLink,
     manageCollections,

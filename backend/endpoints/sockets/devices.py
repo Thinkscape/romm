@@ -1,6 +1,6 @@
 """The ``/devices`` socket namespace, open only to device-bound client tokens."""
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from typing import Any, Final, NamedTuple
 
@@ -177,7 +177,7 @@ async def _emit_to_device(event: str, request: InstallRequestSchema) -> None:
     try:
         await socket_handler.write_manager().emit(
             event,
-            {"id": request.id, "rom_id": request.rom_id},
+            {"id": request.id, "rom_id": request.rom_id, "action": request.action},
             namespace=DEVICES_NAMESPACE,
             room=device_room(request.device_id),
         )
@@ -195,6 +195,23 @@ async def emit_install_queued(request: InstallRequestSchema) -> None:
 async def emit_install_cancelled(request: InstallRequestSchema) -> None:
     """Tell the device to drop a request it may already be downloading, logging a failure."""
     await _emit_to_device("install:cancelled", request)
+
+
+async def emit_collections_changed(device_ids: Iterable[str]) -> None:
+    """Tell each device to re-fetch the collections it syncs, logging a failure."""
+    for device_id in sorted(set(device_ids)):
+        try:
+            await socket_handler.write_manager().emit(
+                "collections:changed",
+                {},
+                namespace=DEVICES_NAMESPACE,
+                room=device_room(device_id),
+            )
+        except Exception:  # noqa: BLE001
+            log.warning(
+                f"Failed to push collections:changed to device {device_id}",
+                exc_info=True,
+            )
 
 
 async def emit_install_updated(request: InstallRequestSchema) -> None:

@@ -1219,3 +1219,46 @@ def test_the_play_permissions_revision_backfills_reverses_and_replays(
             for action in ("read", "write")
         }
         connection.execute(_GROUPS.delete().where(_GROUPS.c.name == "Locked down"))
+
+
+def test_the_collection_device_syncs_revision_follows_play_permissions():
+    """0154 adds `collection_device_syncs` on top of 0153 and can be reversed."""
+    migration = _load_migration("0154_collection_device_syncs.py")
+
+    assert migration.revision == "0154_collection_device_syncs"
+    assert migration.down_revision == "0153_play_permissions"
+    assert callable(migration.downgrade)
+
+    with sync_engine.connect() as connection:
+        inspector = sa.inspect(connection)
+        columns = {
+            column["name"]
+            for column in inspector.get_columns("collection_device_syncs")
+        }
+        unique_column_sets = [
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints(
+                "collection_device_syncs"
+            )
+        ] + [
+            tuple(index["column_names"])
+            for index in inspector.get_indexes("collection_device_syncs")
+            if index.get("unique")
+        ]
+        foreign_keys = {
+            (tuple(fk["constrained_columns"]), fk["referred_table"])
+            for fk in inspector.get_foreign_keys("collection_device_syncs")
+        }
+
+    assert columns == {
+        "id",
+        "user_id",
+        "device_id",
+        "collection_kind",
+        "collection_id",
+        "created_at",
+        "updated_at",
+    }
+    assert ("device_id", "collection_kind", "collection_id") in unique_column_sets
+    assert (("device_id",), "devices") in foreign_keys
+    assert (("user_id",), "users") in foreign_keys

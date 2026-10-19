@@ -11,8 +11,15 @@ class InstallStatus(enum.StrEnum):
     TAKEN = "taken"
     DONE = "done"
     ALREADY_INSTALLED = "already_installed"
+    # An uninstall found nothing of the rom on the device.
+    NOT_INSTALLED = "not_installed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class InstallAction(enum.StrEnum):
+    INSTALL = "install"
+    UNINSTALL = "uninstall"
 
 
 InstallReason = Annotated[str, Field(max_length=500)]
@@ -25,6 +32,8 @@ class InstallRequestSchema(BaseModel):
     user_id: int
     device_id: str
     rom_id: int
+    # Requests stored before uninstall existed carry no action.
+    action: InstallAction = InstallAction.INSTALL
     file_ids: list[int]
     status: InstallStatus
     reason: InstallReason | None

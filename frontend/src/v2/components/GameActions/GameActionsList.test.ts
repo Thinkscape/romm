@@ -19,6 +19,7 @@ type Flags = {
   canJoinStream: boolean;
   canDownload: boolean;
   canInstallOnDevice: boolean;
+  canUninstallFromDevice: boolean;
 };
 
 // Not flags: the Join and Stream items render these labels verbatim, so they
@@ -41,6 +42,7 @@ const flags: Flags = {
   canDelete: true,
   canJoinStream: false,
   canInstallOnDevice: false,
+  canUninstallFromDevice: false,
 };
 
 vi.mock("@/v2/composables/useGameActions", () => ({
@@ -185,6 +187,18 @@ describe("GameActionsList: installing on a device", () => {
   it("hides it otherwise", () => {
     const shown = labels(mountList({ canInstallOnDevice: false }));
     expect(shown).not.toContain("rom.install-on-device");
+  });
+});
+
+describe("GameActionsList: uninstalling from a device", () => {
+  it("offers the uninstall when the caller may manage devices", () => {
+    const shown = labels(mountList({ canUninstallFromDevice: true }));
+    expect(shown).toContain("rom.uninstall-from-device");
+  });
+
+  it("hides it otherwise", () => {
+    const shown = labels(mountList({ canUninstallFromDevice: false }));
+    expect(shown).not.toContain("rom.uninstall-from-device");
   });
 });
 

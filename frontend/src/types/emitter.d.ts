@@ -1,4 +1,5 @@
 import type {
+  CollectionSyncKind,
   PermissionGroupSchema,
   SaveSchema,
   StateSchema,
@@ -107,6 +108,12 @@ export type Events = {
   // (which only ever hold SimpleRom) can trigger it too.
   showQRCodeDialog: SimpleRom;
   showInstallOnDeviceDialog: SimpleRom;
+  showUninstallFromDeviceDialog: SimpleRom;
+  showCollectionSyncDialog: {
+    kind: CollectionSyncKind;
+    id: number;
+    name: string;
+  };
   selectSaveDialog: DetailedRom;
   selectStateDialog: DetailedRom;
   saveSelected: SaveSchema;

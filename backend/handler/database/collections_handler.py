@@ -35,6 +35,7 @@ from models.collection import (
     VirtualCollection,
     VirtualCollectionRom,
 )
+from models.collection_device_sync import CollectionDeviceSync, CollectionSyncKind
 from models.rom import Rom
 from utils.sql_dialect import json_array_contains_value
 
@@ -44,6 +45,18 @@ MAX_VIRTUAL_COLLECTION_COVERS = 5
 
 # Collections per UNION ALL statement, to keep any single statement small.
 COVERS_BATCH_SIZE = 100
+
+
+def _delete_device_syncs(
+    session: Session, collection_kind: CollectionSyncKind, collection_id: int
+) -> None:
+    """Drop the device subscriptions of a deleted collection, which no foreign key covers."""
+    session.execute(
+        delete(CollectionDeviceSync).where(
+            CollectionDeviceSync.collection_kind == collection_kind,
+            CollectionDeviceSync.collection_id == collection_id,
+        )
+    )
 
 
 def _roms_load_options() -> list[Any]:
@@ -274,6 +287,7 @@ class DBCollectionsHandler(DBBaseHandler):
             .where(Collection.id == id)
             .execution_options(synchronize_session="evaluate")
         )
+        _delete_device_syncs(session, CollectionSyncKind.REGULAR, id)
 
     # Virtual collections
     def _attach_covers(
@@ -515,6 +529,7 @@ class DBCollectionsHandler(DBBaseHandler):
             .where(SmartCollection.id == id)
             .execution_options(synchronize_session="evaluate")
         )
+        _delete_device_syncs(session, CollectionSyncKind.SMART, id)
 
     def build_smart_collection_query[S: Select[*tuple[Any, ...]]](
         self,

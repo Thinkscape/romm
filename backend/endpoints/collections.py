@@ -18,6 +18,7 @@ from endpoints.roms import (
     refresh_affected_smart_collections,
     refresh_scoped_smart_collections,
 )
+from endpoints.sockets.devices import emit_collections_changed
 from exceptions.endpoint_exceptions import (
     CollectionAlreadyExistsException,
     CollectionNotFoundInDatabaseException,
@@ -26,7 +27,11 @@ from exceptions.endpoint_exceptions import (
 from handler.audit_handler import AuditTarget, changed_fields, record
 from handler.auth.constants import Scope
 from handler.auth.dependencies import get_rom_visibility_filter
-from handler.database import db_collection_handler, db_rom_handler
+from handler.database import (
+    db_collection_handler,
+    db_collection_sync_handler,
+    db_rom_handler,
+)
 from handler.database.rom_filters import RomFilterParams
 from handler.filesystem import fs_resource_handler
 from handler.filesystem.assets_handler import validate_image_upload
@@ -41,6 +46,7 @@ from models.collection import (
     SmartCollection,
     VirtualCollection,
 )
+from models.collection_device_sync import CollectionSyncKind
 from utils.router import APIRouter
 from utils.validation import ValidationError
 
@@ -92,6 +98,13 @@ def _record_collection(
     if getattr(collection, "is_favorite", False):
         return
     record(action, request, AuditTarget.of_collection(collection), data)
+
+
+async def _notify_synced_devices(kind: CollectionSyncKind, collection_id: int) -> None:
+    """Tell every device syncing the collection to re-fetch it."""
+    await emit_collections_changed(
+        db_collection_sync_handler.get_subscribed_device_ids(kind, collection_id)
+    )
 
 
 def _criteria_collection_id(criteria: object) -> int | None:
@@ -577,6 +590,8 @@ async def update_collection(
             },
         )
 
+    if changed or before_ids != after_ids:
+        await _notify_synced_devices(CollectionSyncKind.REGULAR, id)
     return CollectionSchema.model_validate(updated_collection)
 
 
@@ -586,7 +601,7 @@ async def update_collection(
     [Scope.COLLECTIONS_WRITE],
     responses={status.HTTP_403_FORBIDDEN: {}, status.HTTP_404_NOT_FOUND: {}},
 )
-def update_collection_visibility(
+async def update_collection_visibility(
     request: Request,
     id: int,
     is_public: Annotated[bool, Body(embed=True)],
@@ -604,6 +619,8 @@ def update_collection_visibility(
     )
     if collection.is_public != is_public:
         refresh_scoped_smart_collections(id)
+        # Other users' devices lose or regain the collection.
+        await _notify_synced_devices(CollectionSyncKind.REGULAR, id)
 
     return CollectionSchema.model_validate(updated_collection)
 
@@ -647,6 +664,8 @@ async def add_roms_to_collection(
             collection,
             {"count": len(added), "rom_ids": added},
         )
+    if added:
+        await _notify_synced_devices(CollectionSyncKind.REGULAR, id)
     return CollectionSchema.model_validate(updated_collection)
 
 
@@ -685,6 +704,8 @@ async def remove_roms_from_collection(
             collection,
             {"count": len(removed), "rom_ids": removed},
         )
+    if removed:
+        await _notify_synced_devices(CollectionSyncKind.REGULAR, id)
     return CollectionSchema.model_validate(updated_collection)
 
 
@@ -759,6 +780,7 @@ async def update_smart_collection(
         db_collection_handler.refresh_smart_collection(id) or updated_smart_collection
     )
     _record_collection(request, AuditAction.SMART_COLLECTION_EDIT, smart_collection)
+    await _notify_synced_devices(CollectionSyncKind.SMART, id)
 
     return SmartCollectionSchema.model_validate(smart_collection)
 
@@ -806,9 +828,14 @@ async def delete_collection(
         raise CollectionPermissionError(id)
 
     log.info(f"Deleting {hl(collection.name, color=BLUE)} from database")
+    synced_device_ids = db_collection_sync_handler.get_subscribed_device_ids(
+        CollectionSyncKind.REGULAR, id
+    )
+    # Also drops the collection's device subscriptions.
     db_collection_handler.delete_collection(id)
     refresh_scoped_smart_collections(id)
     _record_collection(request, AuditAction.COLLECTION_DELETE, collection)
+    await emit_collections_changed(synced_device_ids)
 
     try:
         await fs_resource_handler.remove_directory(collection.fs_resources_path)
@@ -837,5 +864,10 @@ async def delete_smart_collection(
         raise CollectionPermissionError(id)
 
     log.info(f"Deleting {hl(smart_collection.name, color=BLUE)} from database")
+    synced_device_ids = db_collection_sync_handler.get_subscribed_device_ids(
+        CollectionSyncKind.SMART, id
+    )
+    # Also drops the collection's device subscriptions.
     db_collection_handler.delete_smart_collection(id)
     _record_collection(request, AuditAction.SMART_COLLECTION_DELETE, smart_collection)
+    await emit_collections_changed(synced_device_ids)

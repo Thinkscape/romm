@@ -2,6 +2,7 @@
 // language of whoever opens them; any other kind brings its own title and body.
 import type { RouteLocationRaw } from "vue-router";
 import type {
+  InstallAction,
   InstallStatus,
   NotificationKind,
   NotificationSchema,
@@ -62,13 +63,21 @@ function deviceInstallView(
     device:
       text(data.device_name) ?? t("notifications.device-install-your-device"),
   };
-  const titleKey = failed
-    ? "notifications.device-install-failed"
-    : data.status === ("already_installed" satisfies InstallStatus)
-      ? "notifications.device-install-already-installed"
-      : "notifications.device-install-completed";
+  const uninstall = data.action === ("uninstall" satisfies InstallAction);
+  const titleKey = uninstall
+    ? failed
+      ? "notifications.device-uninstall-failed"
+      : data.status === ("not_installed" satisfies InstallStatus)
+        ? "notifications.device-uninstall-not-installed"
+        : "notifications.device-uninstall-completed"
+    : failed
+      ? "notifications.device-install-failed"
+      : data.status === ("already_installed" satisfies InstallStatus)
+        ? "notifications.device-install-already-installed"
+        : "notifications.device-install-completed";
   return {
-    icon: failed ? "mdi-cellphone-remove" : "mdi-cellphone-arrow-down",
+    icon:
+      failed || uninstall ? "mdi-cellphone-remove" : "mdi-cellphone-arrow-down",
     title: t(titleKey, named),
     body: text(data.reason),
     to: romId ? { name: ROUTES.ROM, params: { rom: romId } } : null,

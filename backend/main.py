@@ -32,6 +32,7 @@ from endpoints.activity import router as activity_router
 from endpoints.audit_events import router as audit_events_router
 from endpoints.auth import router as auth_router
 from endpoints.client_tokens import router as client_tokens_router
+from endpoints.collection_syncs import router as collection_syncs_router
 from endpoints.collections import router as collections_router
 from endpoints.configs import router as configs_router
 from endpoints.device import router as device_router
@@ -213,6 +214,7 @@ app.include_router(logs_router, prefix="/api")
 app.include_router(screenshots_router, prefix="/api")
 app.include_router(firmware_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
+app.include_router(collection_syncs_router, prefix="/api")
 app.include_router(export_router, prefix="/api")
 app.include_router(netplay_router, prefix="/api")
 app.include_router(permissions_router, prefix="/api")

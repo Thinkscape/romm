@@ -6,7 +6,11 @@ from fastapi import status
 from tests.factories import make_device_token, make_platform, make_rom
 
 from endpoints.device import install as device_install
-from endpoints.responses.device.install import InstallRequestSchema, InstallStatus
+from endpoints.responses.device.install import (
+    InstallAction,
+    InstallRequestSchema,
+    InstallStatus,
+)
 from handler.database import db_device_handler, db_rom_handler
 from handler.database.base_handler import sync_session
 from handler.device_install import device_install_handler
@@ -249,10 +253,18 @@ class TestCreate:
         real_create = device_install_handler.create
 
         async def create_then_delete_device(
-            user_id: int, device_id: str, rom_id: int, file_ids: list[int]
+            user_id: int,
+            device_id: str,
+            rom_id: int,
+            file_ids: list[int],
+            action: InstallAction = InstallAction.INSTALL,
         ) -> tuple[InstallRequestSchema, bool]:
             created = await real_create(
-                user_id=user_id, device_id=device_id, rom_id=rom_id, file_ids=file_ids
+                user_id=user_id,
+                device_id=device_id,
+                rom_id=rom_id,
+                file_ids=file_ids,
+                action=action,
             )
             db_device_handler.delete_device(device_id=device_id, user_id=user_id)
             return created
@@ -560,3 +572,155 @@ class TestCancel:
         response = _cancel(client, headers, request_id, device_id="dev-2")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+REMOTE_UNINSTALL = {"remote_install": True, "remote_uninstall": True}
+
+
+def _uninstall(client, headers, rom_id: int, device_id: str = "dev-1"):
+    return client.post(
+        f"/api/devices/{device_id}/installs",
+        json={"rom_id": rom_id, "action": "uninstall"},
+        headers=headers,
+    )
+
+
+@pytest.fixture
+def uninstall_device(admin_user: User, device: Device) -> Device:
+    updated = db_device_handler.update_device(
+        device_id=device.id,
+        user_id=admin_user.id,
+        data={"capabilities": REMOTE_UNINSTALL},
+    )
+    assert updated is not None
+    return updated
+
+
+class TestUninstall:
+    def test_rejects_a_device_without_the_uninstall_capability(
+        self, client, headers, device, rom, rom_files, emits
+    ):
+        response = _uninstall(client, headers, rom.id)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "remote uninstalls" in response.json()["detail"]
+        emits["queued"].assert_not_awaited()
+
+    def test_an_install_defaults_to_the_install_action(
+        self, client, headers, device, rom, rom_files
+    ):
+        response = _create(client, headers, rom.id)
+
+        assert response.json()["action"] == "install"
+
+    def test_round_trip_reaches_the_device_and_ends_done(
+        self,
+        client,
+        headers,
+        device_headers,
+        uninstall_device,
+        rom,
+        rom_files,
+        emits,
+    ):
+        created = _uninstall(client, headers, rom.id)
+
+        assert created.status_code == status.HTTP_201_CREATED
+        body = created.json()
+        assert body["action"] == "uninstall"
+        # Every file an install could have pushed, the missing one included.
+        assert body["file_ids"] == sorted(
+            [rom_files["game"].id, rom_files["update"].id, rom_files["gone"].id]
+        )
+        queued = emits["queued"].await_args.args[0]
+        assert queued.action == InstallAction.UNINSTALL
+
+        claimed = _claim(client, device_headers).json()
+        assert [(r["id"], r["action"]) for r in claimed] == [(body["id"], "uninstall")]
+
+        response = _report(client, device_headers, body["id"], "done")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "done"
+        _, kind, level, data = emits["notify"].await_args.args
+        assert kind == NotificationKind.DEVICE_INSTALL_COMPLETED
+        assert data["action"] == "uninstall"
+        assert _live_on_device() == []
+
+    def test_a_device_with_nothing_to_remove_reports_not_installed(
+        self, client, headers, device_headers, uninstall_device, rom, rom_files, emits
+    ):
+        request_id = _uninstall(client, headers, rom.id).json()["id"]
+        _claim(client, device_headers)
+
+        response = _report(client, device_headers, request_id, "not_installed")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "not_installed"
+        _, kind, level, data = emits["notify"].await_args.args
+        assert kind == NotificationKind.DEVICE_INSTALL_COMPLETED
+        assert data["status"] == "not_installed"
+
+    def test_an_install_cannot_end_as_not_installed(
+        self, client, headers, device_headers, device, rom, rom_files
+    ):
+        request_id = _taken(client, headers, device_headers, rom.id)
+
+        response = _report(client, device_headers, request_id, "not_installed")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert _stored(request_id) is not None
+
+    def test_an_uninstall_cannot_end_as_already_installed(
+        self, client, headers, device_headers, uninstall_device, rom, rom_files
+    ):
+        request_id = _uninstall(client, headers, rom.id).json()["id"]
+        _claim(client, device_headers)
+
+        response = _report(client, device_headers, request_id, "already_installed")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_an_excluded_platform_can_still_be_uninstalled(
+        self, client, headers, uninstall_device
+    ):
+        platform = make_platform("win", name="Windows")
+        rom = make_rom(platform, "setup", fs_extension="exe")
+        _add_file(rom, "setup.exe", RomFileCategory.GAME)
+
+        response = _uninstall(client, headers, rom.id)
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_a_rom_missing_from_the_filesystem_can_still_be_uninstalled(
+        self, client, headers, uninstall_device, rom, rom_files
+    ):
+        db_rom_handler.update_rom(rom.id, {"missing_from_fs": True})
+
+        response = _uninstall(client, headers, rom.id)
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_an_install_and_an_uninstall_of_one_rom_both_wait(
+        self, client, headers, uninstall_device, rom, rom_files
+    ):
+        install = _create(client, headers, rom.id).json()
+        uninstall = _uninstall(client, headers, rom.id)
+
+        assert uninstall.status_code == status.HTTP_201_CREATED
+        assert uninstall.json()["id"] != install["id"]
+        assert [r.action for r in _live_on_device()] == [
+            InstallAction.INSTALL,
+            InstallAction.UNINSTALL,
+        ]
+
+    def test_a_second_uninstall_returns_the_one_already_queued(
+        self, client, headers, uninstall_device, rom, rom_files, emits
+    ):
+        first = _uninstall(client, headers, rom.id).json()
+
+        response = _uninstall(client, headers, rom.id)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == first["id"]
+        emits["queued"].assert_awaited_once()

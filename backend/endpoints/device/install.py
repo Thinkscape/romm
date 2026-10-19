@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from config import DEVICE_INSTALL_ENABLED
 from decorators.auth import protected_route
 from endpoints.responses.device.install import (
+    InstallAction,
     InstallReason,
     InstallRequestSchema,
     InstallStatus,
@@ -39,8 +40,10 @@ from handler.device_install import (
 from handler.device_install.policy import (
     InstallNotAllowedError,
     accepts_remote_install,
+    accepts_remote_uninstall,
     is_installable_platform,
     select_install_files,
+    select_uninstall_files,
 )
 from handler.notification_handler import notify
 from logger.logger import log
@@ -52,12 +55,23 @@ from utils.router import APIRouter
 router = APIRouter()
 
 DEVICE_REPORTS: Final = frozenset(
-    {InstallStatus.DONE, InstallStatus.ALREADY_INSTALLED, InstallStatus.FAILED}
+    {
+        InstallStatus.DONE,
+        InstallStatus.ALREADY_INSTALLED,
+        InstallStatus.NOT_INSTALLED,
+        InstallStatus.FAILED,
+    }
 )
+# Outcomes that only make sense for the other action.
+FOREIGN_REPORTS: Final = {
+    InstallAction.INSTALL: InstallStatus.NOT_INSTALLED,
+    InstallAction.UNINSTALL: InstallStatus.ALREADY_INSTALLED,
+}
 
 
 class InstallRequestCreatePayload(BaseModel):
     rom_id: int = Field(ge=1)
+    action: InstallAction = InstallAction.INSTALL
 
 
 class InstallRequestUpdatePayload(BaseModel):
@@ -93,7 +107,9 @@ def _require_device(
     return owned
 
 
-async def _require_request(request: Request, device_id: str, request_id: str) -> None:
+async def _require_request(
+    request: Request, device_id: str, request_id: str
+) -> InstallRequestSchema:
     install = await device_install_handler.get(request_id)
     if (
         install is None
@@ -104,6 +120,7 @@ async def _require_request(request: Request, device_id: str, request_id: str) ->
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Install request {request_id} not found",
         )
+    return install
 
 
 @contextmanager
@@ -139,6 +156,7 @@ async def _notify_outcome(install: InstallRequestSchema, device: Device) -> None
             "device_name": device.name or device.hostname,
             "status": install.status,
             "reason": install.reason,
+            "action": install.action,
         },
     )
 
@@ -177,11 +195,18 @@ async def create_install_request(
     device_id: Annotated[str, PathVar(description="Target device id.")],
     payload: InstallRequestCreatePayload,
 ) -> InstallRequestSchema:
-    """Queue a rom for install on a device, returning a live request for the same pair with 200."""
+    """Queue a rom for install or uninstall on a device, returning a live request
+    for the same rom, device and action with 200."""
     if not DEVICE_INSTALL_ENABLED:
         raise DeviceInstallDisabledException()
+    uninstall = payload.action == InstallAction.UNINSTALL
     device = _require_device(request, device_id)
-    if not accepts_remote_install(device.capabilities):
+    if uninstall and not accepts_remote_uninstall(device.capabilities):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Device {device_id} does not accept remote uninstalls",
+        )
+    if not uninstall and not accepts_remote_install(device.capabilities):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Device {device_id} does not accept remote installs",
@@ -192,19 +217,25 @@ async def create_install_request(
         raise RomNotFoundInDatabaseException(payload.rom_id)
     assert_rom_visible(request, rom)
 
-    if not is_installable_platform(rom.platform_slug):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Roms for {rom.platform_slug} cannot be installed on a device",
+    if uninstall:
+        # Removing never needs the files on disk, nor an installable platform.
+        file_ids = select_uninstall_files(db_rom_handler.rom_files_for_rom_id(rom.id))
+    else:
+        if not is_installable_platform(rom.platform_slug):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Roms for {rom.platform_slug} cannot be installed on a device",
+            )
+        # A rescan flags only the rom when its path is gone, never its file rows.
+        files = (
+            [] if rom.missing_from_fs else db_rom_handler.rom_files_for_rom_id(rom.id)
         )
-    # A rescan flags only the rom when its path is gone, never its file rows.
-    files = [] if rom.missing_from_fs else db_rom_handler.rom_files_for_rom_id(rom.id)
-    try:
-        file_ids = select_install_files(files)
-    except InstallNotAllowedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+        try:
+            file_ids = select_install_files(files)
+        except InstallNotAllowedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
 
     with _install_errors():
         install, created = await device_install_handler.create(
@@ -212,6 +243,7 @@ async def create_install_request(
             device_id=device_id,
             rom_id=rom.id,
             file_ids=file_ids,
+            action=payload.action,
         )
 
     if not created:
@@ -229,7 +261,7 @@ async def create_install_request(
             detail=f"Device with ID {device_id} not found",
         )
 
-    log.info(f"Queued rom {rom.id} for install on device {device_id}")
+    log.info(f"Queued rom {rom.id} for {payload.action} on device {device_id}")
     await asyncio.gather(emit_install_queued(install), emit_install_updated(install))
     return install
 
@@ -284,6 +316,7 @@ async def claim_install_requests(
     "/{device_id}/installs/{request_id}",
     [Scope.DEVICES_WRITE],
     responses={
+        status.HTTP_400_BAD_REQUEST: {},
         status.HTTP_403_FORBIDDEN: {},
         status.HTTP_404_NOT_FOUND: {},
         status.HTTP_409_CONFLICT: {},
@@ -299,7 +332,12 @@ async def update_install_request(
     if not DEVICE_INSTALL_ENABLED:
         raise DeviceInstallDisabledException()
     device = _require_device(request, device_id, device_only=True)
-    await _require_request(request, device_id, request_id)
+    install = await _require_request(request, device_id, request_id)
+    if payload.status == FOREIGN_REPORTS[install.action]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An {install.action} request cannot end as {payload.status}",
+        )
 
     with _install_errors():
         ended = await device_install_handler.report(

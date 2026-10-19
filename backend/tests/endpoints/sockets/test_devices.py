@@ -7,7 +7,11 @@ import pytest
 from socketio import exceptions as socketio_exceptions
 from tests.factories import make_device_token
 
-from endpoints.responses.device.install import InstallRequestSchema, InstallStatus
+from endpoints.responses.device.install import (
+    InstallAction,
+    InstallRequestSchema,
+    InstallStatus,
+)
 from endpoints.sockets import devices
 from handler.auth.hybrid_auth import resolve_client_token
 from handler.database import db_client_token_handler, db_device_handler
@@ -318,7 +322,7 @@ class TestEmitToDevice:
 
         emit.assert_awaited_once_with(
             "install:cancelled",
-            {"id": "req-1", "rom_id": 7},
+            {"id": "req-1", "rom_id": 7, "action": "install"},
             namespace=NAMESPACE,
             room="device:dev-1",
         )
@@ -415,10 +419,43 @@ class TestEmit:
 
         manager.emit.assert_awaited_once_with(
             "install:queued",
-            {"id": "r1", "rom_id": 7},
+            {"id": "r1", "rom_id": 7, "action": "install"},
             namespace=NAMESPACE,
             room="device:dev-1",
         )
+
+    async def test_queued_carries_an_uninstall_action(self, manager):
+        request = self._request().model_copy(
+            update={"action": InstallAction.UNINSTALL}
+        )
+
+        await devices.emit_install_queued(request)
+
+        manager.emit.assert_awaited_once_with(
+            "install:queued",
+            {"id": "r1", "rom_id": 7, "action": "uninstall"},
+            namespace=NAMESPACE,
+            room="device:dev-1",
+        )
+
+    async def test_collections_changed_reaches_each_devices_room_once(self, manager):
+        await devices.emit_collections_changed(["dev-2", "dev-1", "dev-2"])
+
+        assert [call.args for call in manager.emit.await_args_list] == [
+            ("collections:changed", {}),
+            ("collections:changed", {}),
+        ]
+        assert [call.kwargs for call in manager.emit.await_args_list] == [
+            {"namespace": NAMESPACE, "room": "device:dev-1"},
+            {"namespace": NAMESPACE, "room": "device:dev-2"},
+        ]
+
+    async def test_collections_changed_failure_is_only_logged(self, manager):
+        manager.emit.side_effect = OSError
+
+        await devices.emit_collections_changed(["dev-1"])
+
+        manager.emit.assert_awaited_once()
 
     async def test_updated_reaches_the_owners_tabs(self, manager):
         await devices.emit_install_updated(self._request())

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from endpoints.responses.device.install import InstallStatus
+from endpoints.responses.device.install import InstallAction, InstallStatus
 from endpoints.responses.notification import NotificationSchema
 from models.notification import NotificationKind
 from utils.urls import get_public_base_url
@@ -86,10 +86,16 @@ def _describe(n: NotificationSchema) -> tuple[str, str | None, str | None]:
             game = _text(data.get("rom_name")) or "A game"
             device = _text(data.get("device_name")) or "your device"
             rom_id = _count(data.get("rom_id"))
+            uninstall = data.get("action") == InstallAction.UNINSTALL
             if n.kind == NotificationKind.DEVICE_INSTALL_FAILED:
-                title = f"{game} could not be installed on {device}"
+                verb = "removed from" if uninstall else "installed on"
+                title = f"{game} could not be {verb} {device}"
             elif data.get("status") == InstallStatus.ALREADY_INSTALLED:
                 title = f"{game} is already installed on {device}"
+            elif data.get("status") == InstallStatus.NOT_INSTALLED:
+                title = f"{game} was not installed on {device}"
+            elif uninstall:
+                title = f"{game} was removed from {device}"
             else:
                 title = f"{game} was added to downloads on {device}"
             return (

@@ -2,6 +2,7 @@
 import AboutDialog from "@/v2/components/Dialogs/AboutDialog.vue";
 import AddPhysicalGameDialog from "@/v2/components/Dialogs/AddPhysicalGameDialog.vue";
 import ChangelogDialog from "@/v2/components/Dialogs/ChangelogDialog.vue";
+import CollectionSyncDialog from "@/v2/components/Dialogs/CollectionSyncDialog.vue";
 import CopyDownloadLinkDialog from "@/v2/components/Dialogs/CopyDownloadLinkDialog.vue";
 import CreateSmartCollectionDialog from "@/v2/components/Dialogs/CreateSmartCollectionDialog.vue";
 import DeleteManualDialog from "@/v2/components/Dialogs/DeleteManualDialog.vue";
@@ -38,6 +39,8 @@ defineOptions({ inheritAttrs: false });
   <SearchCoverDialog />
   <ShowQRCodeDialog />
   <InstallOnDeviceDialog />
+  <InstallOnDeviceDialog action="uninstall" />
+  <CollectionSyncDialog />
   <CopyDownloadLinkDialog />
   <ManageCollectionsDialog />
   <CreateSmartCollectionDialog />

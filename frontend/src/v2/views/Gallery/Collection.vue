@@ -16,7 +16,8 @@
 // Edit + Delete moved out of the InfoPanel `#actions` kebab and into
 // the Settings tab (editable form on top, danger zone at the bottom).
 import type { RTabNavItem } from "@v2/lib";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import type { Emitter } from "mitt";
+import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 import { userStorage } from "@/composables/useUserLocalStorage";
@@ -29,6 +30,8 @@ import storeCollections, {
   type SmartCollection,
   type VirtualCollection,
 } from "@/stores/collections";
+import storeHeartbeat from "@/stores/heartbeat";
+import type { Events } from "@/types/emitter";
 import type { Kind as CollectionKind } from "@/v2/components/Collections/CollectionTile.vue";
 import CollectionHead from "@/v2/components/Gallery/CollectionHead.vue";
 import CollectionSettingsTab from "@/v2/components/Gallery/CollectionSettingsTab.vue";
@@ -64,12 +67,14 @@ const shellRef = ref<InstanceType<typeof GalleryShell> | null>(null);
 const deleting = ref(false);
 const randomLoading = ref(false);
 const canDownload = useCan("rom.download");
+const heartbeat = storeHeartbeat();
+const emitter = inject<Emitter<Events>>("emitter");
 
 usePageTitle(() => currentCollection.value?.name ?? null);
 
 // Virtual collections are computed (no editable fields), so only
 // regular / smart get the Settings tab.
-const editableKind = computed<CollectionKind | null>(() => {
+const editableKind = computed<Exclude<CollectionKind, "virtual"> | null>(() => {
   if (currentKind.value === "regular") return "regular";
   if (currentKind.value === "smart") return "smart";
   return null;
@@ -289,6 +294,29 @@ function onDownload() {
   snackbar.info(t("gallery.selection-download-many", { n: c.rom_count }));
 }
 
+// ── Sync to device ─────────────────────────────────────────────
+// Regular and smart collections can be subscribed by devices; the dialog
+// lists the caller's devices that support it. Virtual collections have no
+// stable id the devices could follow.
+const canSyncToDevice = computed(
+  () =>
+    !!editableKind.value &&
+    heartbeat.value.DEVICE_INSTALL.ENABLED &&
+    auth.scopes.includes("devices.read") &&
+    auth.scopes.includes("devices.write"),
+);
+
+function onSyncToDevice() {
+  const c = currentCollection.value;
+  const kind = editableKind.value;
+  if (!c || !kind) return;
+  emitter?.emit("showCollectionSyncDialog", {
+    kind,
+    id: Number(c.id),
+    name: c.name,
+  });
+}
+
 // ── Random ROM ──────────────────────────────────────────────────
 // Pick one game from this collection and jump to its details. The scope is
 // keyed off the collection kind so regular / virtual / smart all route
@@ -409,10 +437,12 @@ async function onDelete() {
         :tab="tab"
         :tabs="tabs"
         :can-download="canDownload"
+        :can-sync-to-device="canSyncToDevice"
         :random-loading="randomLoading"
         @update:tab="onTabChange"
         @random="onRandomGame"
         @download="onDownload"
+        @sync-to-device="onSyncToDevice"
       />
     </template>
   </GalleryShell>
@@ -430,10 +460,12 @@ async function onDelete() {
         :tab="tab"
         :tabs="tabs"
         :can-download="canDownload"
+        :can-sync-to-device="canSyncToDevice"
         :random-loading="randomLoading"
         @update:tab="onTabChange"
         @random="onRandomGame"
         @download="onDownload"
+        @sync-to-device="onSyncToDevice"
       />
     </template>
     <CollectionSettingsTab
