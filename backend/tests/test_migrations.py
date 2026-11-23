@@ -22,6 +22,7 @@ from tests.factories import make_platform, make_rom, make_save
 
 import models
 from config.config_manager import config_manager as cm
+from handler.auth.rom_visibility import UNRESTRICTED
 from handler.database import db_collection_handler, db_rom_handler
 from handler.database.base_handler import sync_engine
 from models.base import BaseModel
@@ -227,6 +228,40 @@ def _schema_of(connection: sa.Connection, table: str) -> TableSchema:
 def _replay(connection: sa.Connection, filename: str) -> None:
     with Operations.context(MigrationContext.configure(connection)):
         _load_migration(filename).upgrade()
+
+
+def test_screenscraper_genre_backfill_merges_filters_and_collection_members():
+    platform = make_platform("genre-test")
+    screen_scraper = [
+        make_rom(
+            platform,
+            f"ScreenScraper Game {i}",
+            ss_metadata={"genres": ["Beat'em Up", "Action"]},
+        )
+        for i in range(3)
+    ]
+    launchbox = [
+        make_rom(
+            platform, f"LaunchBox Game {i}", launchbox_metadata={"genres": ["Beat 'em Up"]}
+        )
+        for i in range(3)
+    ]
+
+    with sync_engine.begin() as connection:
+        _replay(connection, "0163_canonical_ss_genre.py")
+
+    assert db_rom_handler.get_rom_filters(UNRESTRICTED)["genres"] == [
+        "Action",
+        "Beat 'em Up",
+    ]
+    genres = {
+        collection.name: set(collection.rom_ids)
+        for collection in db_collection_handler.get_virtual_collections(type="genre")
+    }
+    assert genres == {
+        "Action": {rom.id for rom in screen_scraper},
+        "Beat 'em Up": {rom.id for rom in screen_scraper + launchbox},
+    }
 
 
 # None of these is touched by a later revision, so replaying one over the

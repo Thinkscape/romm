@@ -741,6 +741,25 @@ class TestExtractMetadataFromSsRom:
 
         assert metadata["first_release_date"] == 634780800
 
+    def test_beat_em_up_uses_the_shared_genre_name(self):
+        game = cast(
+            SSGame,
+            {
+                "genres": [
+                    {"noms": [{"langue": "en", "text": name}]}
+                    for name in ("Action", "Beat'em Up", "Beat 'em Up")
+                ],
+                "medias": [],
+            },
+        )
+
+        with patch(
+            "handler.metadata.ss_handler.cm.get_config", return_value=_make_config()
+        ):
+            metadata = extract_metadata_from_ss_rom(self._make_rom(), game)
+
+        assert metadata["genres"] == ["Action", "Beat 'em Up"]
+
     def test_franchises_fall_back_to_french(self):
         """ScreenScraper's taxonomy is often French-only, so those fields still
         fall back even when the user asked for another language."""

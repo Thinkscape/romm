@@ -641,12 +641,17 @@ def extract_metadata_from_ss_rom(rom: Rom, game: SSGame) -> SSMetadata:
         return None
 
     def _get_genres(game: SSGame) -> list[str]:
-        return [
+        names = (
             genre_name["text"]
             for genre in game.get("genres", [])
             for genre_name in genre.get("noms", [])
             if genre_name.get("langue") == "en"
-        ]
+        )
+        return list(
+            dict.fromkeys(
+                "Beat 'em Up" if name == "Beat'em Up" else name for name in names
+            )
+        )
 
     def _get_franchises(game: SSGame) -> list[str]:
         for lang in taxonomy_languages:
